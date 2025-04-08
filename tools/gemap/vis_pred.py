@@ -202,9 +202,7 @@ def main():
     # get color map: divider->r, ped->b, boundary->g
     colors_plt = ['#87A6D9', '#BB7BCF', '#69C3A7']
 
-
     logger.info('BEGIN vis test dataset samples gt label & pred')
-
 
     bbox_results = []
     mask_results = []
@@ -234,6 +232,22 @@ def main():
         # import pdb;pdb.set_trace()
         # if pts_filename not in CANDIDATE:
         #     continue
+
+        if isinstance(data, dict):
+            if "gt_bboxes_3d" in data.keys():
+                del data["gt_bboxes_3d"]
+            if "gt_labels_3d" in data.keys():
+                del data["gt_labels_3d"]
+
+            # data["img_metas"][0].data[0][0] = {
+            #     k: v for k, v in data["img_metas"][0].data[0][0].items()
+            #     if "lidar" not in k
+            # }
+            # for key in data["img_metas"][0].data[0][0].keys():
+            #     if "lidar" in key:
+            #         data["img_metas"][0].data[0][0].pop(key, None)
+            # if "img_metas" in data.keys():
+            #     del data["img_metas"]
 
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
@@ -312,7 +326,6 @@ def main():
         #                 x = np.array([pt[0] for pt in pts])
         #                 y = np.array([pt[1] for pt in pts])
         #                 # plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
-        #
         #
         #                 plt.plot(x, y, color=colors_plt[gt_label_3d],linewidth=1,alpha=0.8,zorder=-1)
         #                 plt.scatter(x, y, color=colors_plt[gt_label_3d],s=2,alpha=0.8,zorder=-1)

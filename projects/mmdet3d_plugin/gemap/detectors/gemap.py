@@ -281,7 +281,7 @@ class GeMap(MVXTwoStageDetector):
         losses.update(losses_pts)
         return losses
 
-    def forward_test(self, img_metas, img=None,points=None,  **kwargs):
+    def forward_test(self, img_metas, img=None, points=None,  **kwargs):
         for var, name in [(img_metas, 'img_metas')]:
             if not isinstance(var, list):
                 raise TypeError('{} must be a list, but got {}'.format(
@@ -360,8 +360,9 @@ class GeMap(MVXTwoStageDetector):
     def simple_test(self, img_metas, img=None, points=None, prev_bev=None, rescale=False, **kwargs):
         """Test function without augmentaiton."""
         lidar_feat = None
-        if self.modality =='fusion':
-            lidar_feat = self.extract_lidar_feat(points)
+        prev_bev = None
+        # if self.modality =='fusion':
+        #     lidar_feat = self.extract_lidar_feat(points)
         img_feats = self.extract_feat(img=img, img_metas=img_metas)
 
         bbox_list = [dict() for i in range(len(img_metas))]
@@ -369,6 +370,8 @@ class GeMap(MVXTwoStageDetector):
             img_feats, lidar_feat, img_metas, prev_bev, rescale=rescale)
         for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
             result_dict['pts_bbox'] = pts_bbox
+
+        new_prev_bev = None
         return new_prev_bev, bbox_list
 
 
