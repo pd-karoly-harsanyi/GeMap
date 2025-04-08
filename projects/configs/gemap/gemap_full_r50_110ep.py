@@ -44,7 +44,7 @@ input_modality = dict(
     use_camera=True,
     use_radar=False,
     use_map=False,
-    use_external=True)
+    use_external=False)
 
 _dim_ = 256
 _pos_dim_ = _dim_//2
