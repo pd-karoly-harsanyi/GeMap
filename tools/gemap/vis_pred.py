@@ -147,7 +147,6 @@ def main():
     logger = get_root_logger()
     logger.info(f'DONE create vis_pred dir: {args.show_dir}')
 
-
     dataset = build_dataset(cfg.data.test)
     dataset.is_vis_on_test = True #TODO, this is a hack
     data_loader = build_dataloader(
@@ -203,7 +202,6 @@ def main():
 
 
     logger.info('BEGIN vis test dataset samples gt label & pred')
-
 
 
     bbox_results = []
@@ -389,5 +387,7 @@ def main():
         prog_bar.update()
 
     logger.info('\n DONE vis test dataset samples gt label & pred')
+
+
 if __name__ == '__main__':
     main()
