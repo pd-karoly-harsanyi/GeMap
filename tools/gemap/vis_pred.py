@@ -4,6 +4,8 @@ import os
 import shutil
 import torch
 import warnings
+import tempfile
+import os
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
@@ -212,17 +214,19 @@ def main():
     prog_bar = mmcv.ProgressBar(len(dataset))
     # import pdb;pdb.set_trace()
     for i, data in enumerate(data_loader):
-        if ~(data['gt_labels_3d'].data[0][0] != -1).any():
-            # import pdb;pdb.set_trace()
-            logger.error(f'\n empty gt for index {i}, continue')
-            # prog_bar.update()  
-            continue
-       
+        # has_gt_labels = True
+        # if ~(data['gt_labels_3d'].data[0][0] != -1).any():
+        #     # # import pdb;pdb.set_trace()
+        #     # logger.error(f'\n empty gt for index {i}, continue')
+        #     # # prog_bar.update()
+        #     # continue
+        #     has_gt_labels = False
+        has_gt_labels = False
         
         img = data['img'][0].data[0]
         img_metas = data['img_metas'][0].data[0]
-        gt_bboxes_3d = data['gt_bboxes_3d'].data[0]
-        gt_labels_3d = data['gt_labels_3d'].data[0]
+        gt_bboxes_3d = data['gt_bboxes_3d'].data[0] if has_gt_labels else None
+        gt_labels_3d = data['gt_labels_3d'].data[0] if has_gt_labels else None
 
         pts_filename = img_metas[0]['pts_filename']
         pts_filename = osp.basename(pts_filename)
@@ -233,114 +237,121 @@ def main():
 
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
-        sample_dir = osp.join(args.show_dir, pts_filename)
-        mmcv.mkdir_or_exist(osp.abspath(sample_dir))
+        # sample_dir = osp.join(args.show_dir, pts_filename)
+        # mmcv.mkdir_or_exist(osp.abspath(sample_dir))
 
         filename_list = img_metas[0]['filename']
         img_path_dict = {}
         # save cam img for sample
-        for filepath in filename_list:
-            filename = osp.basename(filepath)
-            filename_splits = filename.split('__')
-            # sample_dir = filename_splits[0]
-            # sample_dir = osp.join(args.show_dir, sample_dir)
-            # mmcv.mkdir_or_exist(osp.abspath(sample_dir))
-            img_name = filename_splits[1] + '.jpg'
-            img_path = osp.join(sample_dir,img_name)
-            # img_path_list.append(img_path)
-            shutil.copyfile(filepath,img_path)
-            img_path_dict[filename_splits[1]] = img_path
-         
+        # for filepath in filename_list:
+        #     filename = osp.basename(filepath)
+        #     filename_splits = filename.split('__')
+        #     # sample_dir = filename_splits[0]
+        #     # sample_dir = osp.join(args.show_dir, sample_dir)
+        #     # mmcv.mkdir_or_exist(osp.abspath(sample_dir))
+        #     img_name = filename_splits[1] + '.jpg'
+        #     img_path = osp.join(sample_dir,img_name)
+        #     # img_path_list.append(img_path)
+        #     shutil.copyfile(filepath, img_path)
+        #     img_path_dict[filename_splits[1]] = img_path
+        def find_file_with_substring(file_paths, substring):
+            for path in file_paths:
+                if substring in path:
+                    return path
+            return None
+
         # surrounding view
         row_1_list = []
         for cam in CAMS[:3]:
             cam_img_name = cam + '.jpg'
-            cam_img = cv2.imread(osp.join(sample_dir, cam_img_name))
+            img_path = find_file_with_substring(filename_list, cam)
+            cam_img = cv2.imread(img_path)
             row_1_list.append(cam_img)
         row_2_list = []
         for cam in CAMS[3:]:
             cam_img_name = cam + '.jpg'
-            cam_img = cv2.imread(osp.join(sample_dir, cam_img_name))
+            img_path = find_file_with_substring(filename_list, cam)
+            cam_img = cv2.imread(img_path)
             row_2_list.append(cam_img)
         row_1_img=cv2.hconcat(row_1_list)
         row_2_img=cv2.hconcat(row_2_list)
         cams_img = cv2.vconcat([row_1_img,row_2_img])
         cams_img_path = osp.join(sample_dir,'surroud_view.jpg')
-        cv2.imwrite(cams_img_path, cams_img,[cv2.IMWRITE_JPEG_QUALITY, 70])
-        
-        for vis_format in args.gt_format:
-            if vis_format == 'se_pts':
-                gt_line_points = gt_bboxes_3d[0].start_end_points
-                for gt_bbox_3d, gt_label_3d in zip(gt_line_points, gt_labels_3d[0]):
-                    pts = gt_bbox_3d.reshape(-1,2).numpy()
-                    x = np.array([pt[0] for pt in pts])
-                    y = np.array([pt[1] for pt in pts])
-                    plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
-            elif vis_format == 'bbox':
-                gt_lines_bbox = gt_bboxes_3d[0].bbox
-                for gt_bbox_3d, gt_label_3d in zip(gt_lines_bbox, gt_labels_3d[0]):
-                    gt_bbox_3d = gt_bbox_3d.numpy()
-                    xy = (gt_bbox_3d[0],gt_bbox_3d[1])
-                    width = gt_bbox_3d[2] - gt_bbox_3d[0]
-                    height = gt_bbox_3d[3] - gt_bbox_3d[1]
-                    # import pdb;pdb.set_trace()
-                    plt.gca().add_patch(Rectangle(xy,width,height,linewidth=0.4,edgecolor=colors_plt[gt_label_3d],facecolor='none'))
-                    # plt.Rectangle(xy, width, height,color=colors_plt[gt_label_3d])
-                # continue
-            elif vis_format == 'fixed_num_pts':
-                plt.figure(figsize=(2, 4))
-                plt.xlim(pc_range[0], pc_range[3])
-                plt.ylim(pc_range[1], pc_range[4])
-                plt.axis('off')
-                # gt_bboxes_3d[0].fixed_num=30 #TODO, this is a hack
-                gt_lines_fixed_num_pts = gt_bboxes_3d[0].fixed_num_sampled_points
-                for gt_bbox_3d, gt_label_3d in zip(gt_lines_fixed_num_pts, gt_labels_3d[0]):
-                    # import pdb;pdb.set_trace() 
-                    pts = gt_bbox_3d.numpy()
-                    x = np.array([pt[0] for pt in pts])
-                    y = np.array([pt[1] for pt in pts])
-                    # plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
+        # cv2.imwrite(cams_img_path, cams_img,[cv2.IMWRITE_JPEG_QUALITY, 70])
 
-                    
-                    plt.plot(x, y, color=colors_plt[gt_label_3d],linewidth=1,alpha=0.8,zorder=-1)
-                    plt.scatter(x, y, color=colors_plt[gt_label_3d],s=2,alpha=0.8,zorder=-1)
-                    # plt.plot(x, y, color=colors_plt[gt_label_3d])
-                    # plt.scatter(x, y, color=colors_plt[gt_label_3d],s=1)
-                plt.imshow(car_img, extent=[-1.2, 1.2, -1.5, 1.5])
-
-                gt_fixedpts_map_path = osp.join(sample_dir, 'GT_fixednum_pts_MAP.png')
-                plt.savefig(gt_fixedpts_map_path, bbox_inches='tight', format='png',dpi=1200)
-                plt.close()   
-            elif vis_format == 'polyline_pts':
-                plt.figure(figsize=(2, 4))
-                plt.xlim(pc_range[0], pc_range[3])
-                plt.ylim(pc_range[1], pc_range[4])
-                plt.axis('off')
-                gt_lines_instance = gt_bboxes_3d[0].instance_list
-                # import pdb;pdb.set_trace()
-                for gt_line_instance, gt_label_3d in zip(gt_lines_instance, gt_labels_3d[0]):
-                    pts = np.array(list(gt_line_instance.coords))
-                    x = np.array([pt[0] for pt in pts])
-                    y = np.array([pt[1] for pt in pts])
-                    
-                    # plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
-
-                    # plt.plot(x, y, color=colors_plt[gt_label_3d])
-                    plt.plot(x, y, color=colors_plt[gt_label_3d],linewidth=1,alpha=0.8,zorder=-1)
-                    plt.scatter(x, y, color=colors_plt[gt_label_3d],s=1,alpha=0.8,zorder=-1)
-                plt.imshow(car_img, extent=[-1.2, 1.2, -1.5, 1.5])
-
-                gt_polyline_map_path = osp.join(sample_dir, 'GT_polyline_pts_MAP.png')
-                plt.savefig(gt_polyline_map_path, bbox_inches='tight', format='png',dpi=1200)
-                plt.close()           
-
-            else: 
-                logger.error(f'WRONG visformat for GT: {vis_format}')
-                raise ValueError(f'WRONG visformat for GT: {vis_format}')
-
+        # if has_gt_labels:
+        #     for vis_format in args.gt_format:
+        #         if vis_format == 'se_pts':
+        #             gt_line_points = gt_bboxes_3d[0].start_end_points
+        #             for gt_bbox_3d, gt_label_3d in zip(gt_line_points, gt_labels_3d[0]):
+        #                 pts = gt_bbox_3d.reshape(-1,2).numpy()
+        #                 x = np.array([pt[0] for pt in pts])
+        #                 y = np.array([pt[1] for pt in pts])
+        #                 plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
+        #         elif vis_format == 'bbox':
+        #             gt_lines_bbox = gt_bboxes_3d[0].bbox
+        #             for gt_bbox_3d, gt_label_3d in zip(gt_lines_bbox, gt_labels_3d[0]):
+        #                 gt_bbox_3d = gt_bbox_3d.numpy()
+        #                 xy = (gt_bbox_3d[0],gt_bbox_3d[1])
+        #                 width = gt_bbox_3d[2] - gt_bbox_3d[0]
+        #                 height = gt_bbox_3d[3] - gt_bbox_3d[1]
+        #                 # import pdb;pdb.set_trace()
+        #                 plt.gca().add_patch(Rectangle(xy,width,height,linewidth=0.4,edgecolor=colors_plt[gt_label_3d],facecolor='none'))
+        #                 # plt.Rectangle(xy, width, height,color=colors_plt[gt_label_3d])
+        #             # continue
+        #         elif vis_format == 'fixed_num_pts':
+        #             plt.figure(figsize=(2, 4))
+        #             plt.xlim(pc_range[0], pc_range[3])
+        #             plt.ylim(pc_range[1], pc_range[4])
+        #             plt.axis('off')
+        #             # gt_bboxes_3d[0].fixed_num=30 #TODO, this is a hack
+        #             gt_lines_fixed_num_pts = gt_bboxes_3d[0].fixed_num_sampled_points
+        #             for gt_bbox_3d, gt_label_3d in zip(gt_lines_fixed_num_pts, gt_labels_3d[0]):
+        #                 # import pdb;pdb.set_trace()
+        #                 pts = gt_bbox_3d.numpy()
+        #                 x = np.array([pt[0] for pt in pts])
+        #                 y = np.array([pt[1] for pt in pts])
+        #                 # plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
+        #
+        #
+        #                 plt.plot(x, y, color=colors_plt[gt_label_3d],linewidth=1,alpha=0.8,zorder=-1)
+        #                 plt.scatter(x, y, color=colors_plt[gt_label_3d],s=2,alpha=0.8,zorder=-1)
+        #                 # plt.plot(x, y, color=colors_plt[gt_label_3d])
+        #                 # plt.scatter(x, y, color=colors_plt[gt_label_3d],s=1)
+        #             plt.imshow(car_img, extent=[-1.2, 1.2, -1.5, 1.5])
+        #
+        #             gt_fixedpts_map_path = osp.join(sample_dir, 'GT_fixednum_pts_MAP.png')
+        #             plt.savefig(gt_fixedpts_map_path, bbox_inches='tight', format='png',dpi=1200)
+        #             plt.close()
+        #         elif vis_format == 'polyline_pts':
+        #             plt.figure(figsize=(2, 4))
+        #             plt.xlim(pc_range[0], pc_range[3])
+        #             plt.ylim(pc_range[1], pc_range[4])
+        #             plt.axis('off')
+        #             gt_lines_instance = gt_bboxes_3d[0].instance_list
+        #             # import pdb;pdb.set_trace()
+        #             for gt_line_instance, gt_label_3d in zip(gt_lines_instance, gt_labels_3d[0]):
+        #                 pts = np.array(list(gt_line_instance.coords))
+        #                 x = np.array([pt[0] for pt in pts])
+        #                 y = np.array([pt[1] for pt in pts])
+        #
+        #                 # plt.quiver(x[:-1], y[:-1], x[1:] - x[:-1], y[1:] - y[:-1], scale_units='xy', angles='xy', scale=1, color=colors_plt[gt_label_3d])
+        #
+        #                 # plt.plot(x, y, color=colors_plt[gt_label_3d])
+        #                 plt.plot(x, y, color=colors_plt[gt_label_3d],linewidth=1,alpha=0.8,zorder=-1)
+        #                 plt.scatter(x, y, color=colors_plt[gt_label_3d],s=1,alpha=0.8,zorder=-1)
+        #             plt.imshow(car_img, extent=[-1.2, 1.2, -1.5, 1.5])
+        #
+        #             gt_polyline_map_path = osp.join(sample_dir, 'GT_polyline_pts_MAP.png')
+        #             plt.savefig(gt_polyline_map_path, bbox_inches='tight', format='png',dpi=1200)
+        #             plt.close()
+        #
+        #         else:
+        #             logger.error(f'WRONG visformat for GT: {vis_format}')
+        #             raise ValueError(f'WRONG visformat for GT: {vis_format}')
 
         # import pdb;pdb.set_trace()
-        plt.figure(figsize=(2, 4))
+        fig = plt.figure(figsize=(2, 4))
         plt.xlim(pc_range[0], pc_range[3])
         plt.ylim(pc_range[1], pc_range[4])
         plt.axis('off')
@@ -375,15 +386,31 @@ def main():
             pred_score_3d = round(pred_score_3d, 2)
             s = str(pred_score_3d)
 
-
-
         plt.imshow(car_img, extent=[-1.2, 1.2, -1.5, 1.5])
 
-        map_path = osp.join(sample_dir, 'PRED_MAP_plot.png')
-        plt.savefig(map_path, bbox_inches='tight', format='png',dpi=1200)
-        plt.close()
+        with tempfile.NamedTemporaryFile(suffix=".png") as tmp_file:
+            tmp_path = tmp_file.name  # Get the file path
+            plt.savefig(tmp_path, bbox_inches='tight', format='png', dpi=1200)
+            plt.close()
 
-        
+            plot_img = cv2.imread(tmp_path)
+
+        def concat_images_horizontally(img1, img2):
+            """
+            Concatenates two images horizontally using OpenCV.
+            Resizes img2 to match the height of img1 if needed.
+            """
+            if img1.shape[0] != img2.shape[0]:
+                new_height = img1.shape[0]
+                new_width = int(img2.shape[1] * (new_height / img2.shape[0]))
+                img2 = cv2.resize(img2, (new_width, new_height))
+            return np.hstack((img1, img2))
+
+        cams_img = concat_images_horizontally(cams_img, plot_img)
+        cv2.imwrite(
+            f"{args.show_dir}/{pts_filename}.jpg",
+            cams_img
+        )
         prog_bar.update()
 
     logger.info('\n DONE vis test dataset samples gt label & pred')
