@@ -276,7 +276,7 @@ def main():
         row_1_img=cv2.hconcat(row_1_list)
         row_2_img=cv2.hconcat(row_2_list)
         cams_img = cv2.vconcat([row_1_img,row_2_img])
-        cams_img_path = osp.join(sample_dir,'surroud_view.jpg')
+        # cams_img_path = osp.join(sample_dir,'surroud_view.jpg')
         # cv2.imwrite(cams_img_path, cams_img,[cv2.IMWRITE_JPEG_QUALITY, 70])
 
         # if has_gt_labels:
